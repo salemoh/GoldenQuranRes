@@ -27,6 +27,9 @@ class OldDB(object):
         self.engine = None
         self.session = None
         self.connection = None
+        self.new_engine = None
+        self.new_session = None
+        self.new_connection = None
 
         # Place holder for the glyphs table, and select
         self.glyphs = None
@@ -63,6 +66,15 @@ class OldDB(object):
                 group_by(self.glyphs.c.page_number, self.glyphs.c.sura_number,
                          self.glyphs.c.ayah_number, self.glyphs.c.line_number)
 
+        if self.new_db_name is not None:
+            # Init the engine and Session of the DB
+            self.new_engine = create_engine('sqlite:///' + self.new_db_name, echo=True)
+            new_session = sessionmaker(bind=self.new_engine)
+            self.new_session = new_session()
+
+            # Create the meta data of the DB
+            Base.metadata.create_all(self.new_engine)
+
     def parse_db(self, db_persist=False):
         """
         Parse a file into a dictionary of ayahboxes
@@ -84,6 +96,8 @@ class OldDB(object):
             # Calculate the width and height
             width = row['lower_right_x'] - row['upper_left_x']
             height = row['lower_right_y'] - row['upper_left_y']
+            x = row['upper_left_x']
+            y = row['upper_left_y']
 
             print 'sura_number=', row[self.glyphs.c.sura_number], '; ayah_number=', row[
                 self.glyphs.c.ayah_number], '; line_number=', line, \
@@ -91,11 +105,28 @@ class OldDB(object):
                 '; old_line_number=', row[self.glyphs.c.line_number], \
                 '; upper_left_x=', row['upper_left_x'], '; upper_left_y=', row['upper_left_y'], \
                 '; lower_right_x=', row['lower_right_x'], '; lower_right_y=', row['lower_right_y'], \
-                '; x=', row['upper_left_x'], '; y=', row['upper_left_y'], \
+                '; x=', x, '; y=', y, \
                 '; width=', width, '; height=', height
+
+            # Add a new ayahbox to pages
+            ayahbox = AyahBox(page_number=row[self.glyphs.c.page_number],
+                              surah=row[self.glyphs.c.sura_number],
+                              ayah=row[self.glyphs.c.ayah_number],
+                              line=line,
+                              x=x, y=y, width=width, height=height)
+
+            # Add to the DB session
+            # this assumes the other DB components are initialized
+            if db_persist:
+                self.new_session.add(ayahbox)
 
             # Increment line number
             line += 1
+
+        # Commit to the DB
+        if db_persist:
+            self.new_session.commit()
+
 
 
 def db_persist(self):
@@ -123,4 +154,4 @@ def db_persist(self):
 if __name__ == '__main__':
     old_db = OldDB(db_name="../../db/KingFahad.db", new_db_name='../../db/KingFahad1.db')
     old_db.initialize()
-    old_db.parse_db()
+    old_db.parse_db(db_persist=True)
